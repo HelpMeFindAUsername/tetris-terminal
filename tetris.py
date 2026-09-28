@@ -347,6 +347,36 @@ def read_input(screen, prompt, default=""):
     return entered or value
 
 
+def local_ip():
+    """Return the address other players can use on the local network."""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect(("8.8.8.8", 80))
+        return probe.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+    finally:
+        probe.close()
+
+
+def draw_host_info(screen, port):
+    screen.erase()
+    height, columns = screen.getmaxyx()
+    title = "HOST LAN"
+    address = f"{local_ip()}:{port}"
+    instructions = "Condividi questo indirizzo con l'avversario"
+    waiting = "In attesa della connessione..."
+    screen.addstr(max(1, height // 2 - 5), max(0, (columns - len(title)) // 2),
+                  title, curses.A_BOLD)
+    screen.addstr(max(2, height // 2 - 2), max(0, (columns - len(address)) // 2),
+                  address, curses.A_BOLD)
+    screen.addstr(max(3, height // 2), max(0, (columns - len(instructions)) // 2),
+                  instructions)
+    screen.addstr(max(4, height // 2 + 2), max(0, (columns - len(waiting)) // 2),
+                  waiting)
+    screen.refresh()
+
+
 def draw_menu(screen, selected, width, port, message=""):
     screen.erase()
     height, columns = screen.getmaxyx()
@@ -482,6 +512,7 @@ def start_app(screen, args):
     peer = None
     try:
         if mode == "host":
+            draw_host_info(screen, port)
             peer = Peer("host", None, port)
         elif mode.startswith("join:"):
             peer = Peer("join", mode.split(":", 1)[1], port)

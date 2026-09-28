@@ -93,6 +93,9 @@ Dal menu scegli `HOST` per avviare il primo terminale. In alternativa:
 ./tetris.py --host
 ```
 
+Quando l'host è pronto, la schermata mostra l'indirizzo IP LAN e la porta da
+condividere con l'avversario.
+
 L'host deve comunicare all'avversario l'indirizzo IP della macchina (non
 `127.0.0.1`) e la porta, se diversa da quella predefinita. Sul secondo
 terminale scegli `JOIN` e inserisci l'IP. In alternativa:
