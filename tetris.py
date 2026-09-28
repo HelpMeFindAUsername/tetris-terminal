@@ -3,7 +3,9 @@
 
 import curses
 import argparse
+import json
 import random
+import socket
 import time
 
 
@@ -141,6 +143,89 @@ class Game:
             ghost += 1
         return ghost
 
+    def snapshot(self):
+        return {
+            "board": self.board,
+            "kind": self.kind,
+            "next_piece": self.next_piece,
+            "rotation": self.rotation,
+            "x": self.x,
+            "y": self.y,
+            "score": self.score,
+            "lines": self.lines,
+            "level": self.level,
+            "game_over": self.game_over,
+        }
+
+    @classmethod
+    def from_snapshot(cls, data):
+        game = cls.__new__(cls)
+        game.width = len(data["board"][0])
+        game.board = data["board"]
+        game.kind = data["kind"]
+        game.next_piece = data["next_piece"]
+        game.rotation = data["rotation"]
+        game.x = data["x"]
+        game.y = data["y"]
+        game.score = data["score"]
+        game.lines = data["lines"]
+        game.level = data["level"]
+        game.game_over = data["game_over"]
+        game.paused = False
+        return game
+
+
+class Peer:
+    """Small newline-delimited JSON transport for the LAN match."""
+
+    def __init__(self, mode, host, port):
+        self.mode = mode
+        self.port = port
+        self.socket = None
+        self.buffer = b""
+        if mode == "host":
+            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind(("", port))
+            listener.listen(1)
+            print(f"In attesa dell'avversario sulla porta {port}...")
+            self.socket, address = listener.accept()
+            listener.close()
+            print(f"Avversario connesso da {address[0]}")
+        else:
+            self.socket = socket.create_connection((host, port), timeout=8)
+            print(f"Connesso a {host}:{port}")
+        self.socket.setblocking(False)
+
+    def send(self, game):
+        payload = (json.dumps(game.snapshot(), separators=(",", ":")) + "\n").encode()
+        try:
+            self.socket.sendall(payload)
+        except (BlockingIOError, BrokenPipeError, ConnectionResetError):
+            pass
+
+    def receive(self):
+        try:
+            chunk = self.socket.recv(65536)
+            if not chunk:
+                return None
+            self.buffer += chunk
+        except BlockingIOError:
+            return None
+        except ConnectionResetError:
+            return None
+        if b"\n" not in self.buffer:
+            return None
+        raw, self.buffer = self.buffer.split(b"\n", 1)
+        try:
+            return Game.from_snapshot(json.loads(raw.decode()))
+        except (ValueError, KeyError, TypeError):
+            return None
+
+    def close(self):
+        if self.socket:
+            self.socket.close()
+
 
 def init_colors():
     if not curses.has_colors():
@@ -165,12 +250,36 @@ def draw_cell(screen, y, x, value, dim=False):
     screen.addstr(y, x, "[]" if value else "  ", attributes)
 
 
-def draw(screen, game, highlight_rows=None):
+def draw_board(screen, game, left, top, title, highlight_rows=None):
+    screen.addstr(top, left, f" {title} ")
+    screen.addstr(top + 1, left, "+" + "--" * game.width + "+")
+    highlight_rows = set(highlight_rows or ())
+    for row in range(HEIGHT):
+        screen.addstr(top + 2 + row, left, "|")
+        for col in range(game.width):
+            draw_cell(
+                screen, top + 2 + row, left + 1 + col * 2, game.board[row][col],
+                row in highlight_rows,
+            )
+        screen.addstr(top + 2 + row, left + 1 + game.width * 2, "|")
+    screen.addstr(top + HEIGHT + 2, left, "+" + "--" * game.width + "+")
+
+    ghost_y = game.ghost_y()
+    occupied = game.cells()
+    for x, y in game.cells(y=ghost_y):
+        if y >= 0 and (x, y) not in occupied:
+            draw_cell(screen, top + 2 + y, left + 1 + x * 2, game.kind, dim=True)
+    for x, y in occupied:
+        if y >= 0:
+            draw_cell(screen, top + 2 + y, left + 1 + x * 2, game.kind)
+
+
+def draw(screen, game, opponent=None, highlight_rows=None):
     screen.erase()
     height, width = screen.getmaxyx()
     highlight_rows = set(highlight_rows or ())
     board_width = game.width * 2 + 2
-    required_width = board_width + 24
+    required_width = board_width * (2 if opponent else 1) + (27 if opponent else 24)
     required_height = HEIGHT + 4
     if height < required_height or width < required_width:
         message = f"Terminale troppo piccolo: servono almeno {required_width}x{required_height}"
@@ -180,28 +289,15 @@ def draw(screen, game, highlight_rows=None):
 
     left = max(1, (width - required_width) // 2)
     top = 1
-    screen.addstr(top, left, " TETRIS ")
-    screen.addstr(top + 1, left, "+" + "--" * game.width + "+")
-    for row in range(HEIGHT):
-        screen.addstr(top + 2 + row, left, "|")
-        for col in range(game.width):
-            value = game.board[row][col]
-            draw_cell(
-                screen, top + 2 + row, left + 1 + col * 2, value,
-                row in highlight_rows,
-            )
-        screen.addstr(top + 2 + row, left + 1 + game.width * 2, "|")
-    screen.addstr(top + HEIGHT + 2, left, "+" + "--" * game.width + "+")
-
-    ghost_y = game.ghost_y()
-    for x, y in game.cells(y=ghost_y):
-        if y >= 0 and (x, y) not in game.cells():
-            draw_cell(screen, top + 2 + y, left + 1 + x * 2, game.kind, dim=True)
-    for x, y in game.cells():
-        if y >= 0:
-            draw_cell(screen, top + 2 + y, left + 1 + x * 2, game.kind)
-
+    draw_board(screen, game, left, top, "TU", highlight_rows)
     info_x = left + game.width * 2 + 4
+    if opponent:
+        opponent_left = left + board_width + 3
+        draw_board(
+            screen, opponent, opponent_left, top,
+            f"AVVERSARIO S:{opponent.score} L:{opponent.lines}",
+        )
+        info_x = opponent_left + board_width + 3
     screen.addstr(top + 3, info_x, f"Score: {game.score}")
     screen.addstr(top + 4, info_x, f"Linee: {game.lines}")
     screen.addstr(top + 5, info_x, f"Livello: {game.level}")
@@ -224,12 +320,99 @@ def draw(screen, game, highlight_rows=None):
 
 def animate_clear(screen, game, rows):
     for flash in range(4):
-        draw(screen, game, rows if flash % 2 == 0 else ())
+        draw(screen, game, highlight_rows=rows if flash % 2 == 0 else ())
         time.sleep(0.08)
     game.clear_lines(rows)
 
 
-def run(screen, board_width):
+MENU_ITEMS = ("SINGLEPLAYER", "HOST", "JOIN", "SETTINGS", "QUIT")
+
+
+def read_input(screen, prompt, default=""):
+    """Read a short value while curses is active."""
+    height, width = screen.getmaxyx()
+    value = default
+    curses.echo()
+    screen.nodelay(False)
+    screen.addstr(min(height - 2, 3), 3, prompt[:max(1, width - 7)])
+    screen.addstr(min(height - 1, 4), 3, value)
+    screen.refresh()
+    try:
+        entered = screen.getstr(min(height - 1, 4), 3, max(1, width - 7)).decode().strip()
+    except (UnicodeError, curses.error):
+        entered = ""
+    finally:
+        curses.noecho()
+        screen.nodelay(True)
+    return entered or value
+
+
+def draw_menu(screen, selected, width, port, message=""):
+    screen.erase()
+    height, columns = screen.getmaxyx()
+    title = "TETRIS"
+    subtitle = "CLASSIC COMPETITION"
+    screen.addstr(max(1, height // 2 - 8), max(0, (columns - len(title)) // 2), title,
+                  curses.A_BOLD)
+    screen.addstr(max(2, height // 2 - 6), max(0, (columns - len(subtitle)) // 2), subtitle)
+    for index, item in enumerate(MENU_ITEMS):
+        label = f"  {item}  "
+        attributes = curses.A_REVERSE if index == selected else curses.A_NORMAL
+        screen.addstr(height // 2 - 3 + index * 2, max(0, (columns - len(label)) // 2),
+                      label, attributes)
+    status = f"Campo: {width} colonne  |  Porta LAN: {port}"
+    screen.addstr(min(height - 2, height // 2 + 9), max(0, (columns - len(status)) // 2), status)
+    if message:
+        screen.addstr(min(height - 1, height // 2 + 11),
+                      max(0, (columns - len(message)) // 2), message[:columns - 1])
+    screen.refresh()
+
+
+def menu(screen, width, port, initial_mode=None, initial_address=None):
+    """Return the selected mode and updated settings."""
+    selected = MENU_ITEMS.index(initial_mode) if initial_mode in MENU_ITEMS else 0
+    screen.keypad(True)
+    screen.nodelay(True)
+    while True:
+        draw_menu(screen, selected, width, port)
+        key = screen.getch()
+        if key in (ord("q"), ord("Q")):
+            return None, width, port
+        if key in (curses.KEY_UP, ord("k")):
+            selected = (selected - 1) % len(MENU_ITEMS)
+        elif key in (curses.KEY_DOWN, ord("j")):
+            selected = (selected + 1) % len(MENU_ITEMS)
+        elif key in (curses.KEY_ENTER, 10, 13, ord(" ")):
+            choice = MENU_ITEMS[selected]
+            if choice == "SINGLEPLAYER":
+                return "singleplayer", width, port
+            if choice == "HOST":
+                return "host", width, port
+            if choice == "JOIN":
+                address = initial_address or read_input(screen, "IP host: ")
+                if address:
+                    return f"join:{address}", width, port
+            if choice == "SETTINGS":
+                width_value = read_input(screen, f"Larghezza [{width}]: ", str(width))
+                port_value = read_input(screen, f"Porta LAN [{port}]: ", str(port))
+                try:
+                    new_width = int(width_value)
+                    new_port = int(port_value)
+                    if 6 <= new_width <= 30 and 1 <= new_port <= 65535:
+                        width, port = new_width, new_port
+                    else:
+                        draw_menu(screen, selected, width, port,
+                                  "Larghezza: 6-30 | Porta: 1-65535")
+                        time.sleep(1)
+                except ValueError:
+                    draw_menu(screen, selected, width, port, "Valori non validi")
+                    time.sleep(1)
+            if choice == "QUIT":
+                return None, width, port
+        time.sleep(0.03)
+
+
+def run(screen, board_width, peer=None):
     try:
         curses.curs_set(0)
     except curses.error:
@@ -238,10 +421,16 @@ def run(screen, board_width):
     screen.keypad(True)
     init_colors()
     game = Game(board_width)
+    opponent = None
     last_drop = time.monotonic()
 
     while True:
-        draw(screen, game)
+        if peer:
+            incoming = peer.receive()
+            if incoming:
+                opponent = incoming
+            peer.send(game)
+        draw(screen, game, opponent)
         key = screen.getch()
         if key in (ord("q"), ord("Q")):
             return
@@ -278,6 +467,28 @@ def run(screen, board_width):
                         game.spawn()
                 last_drop = time.monotonic()
         time.sleep(0.015)
+    if peer:
+        peer.close()
+
+
+def start_app(screen, args):
+    init_colors()
+    width = args.width
+    port = args.port
+    initial_mode = "HOST" if args.host else "JOIN" if args.join else None
+    mode, width, port = menu(screen, width, port, initial_mode, args.join)
+    if mode is None:
+        return
+    peer = None
+    try:
+        if mode == "host":
+            peer = Peer("host", None, port)
+        elif mode.startswith("join:"):
+            peer = Peer("join", mode.split(":", 1)[1], port)
+        run(screen, width, peer)
+    finally:
+        if peer:
+            peer.close()
 
 
 def parse_args():
@@ -286,15 +497,24 @@ def parse_args():
         "--width", type=int, default=WIDTH, metavar="COLONNE",
         help=f"larghezza del campo (default: {WIDTH}, da 6 a 30)",
     )
+    parser.add_argument("--host", action="store_true", help="ospita una partita LAN 1v1")
+    parser.add_argument("--join", metavar="IP", help="entra nella partita LAN ospitata da IP")
+    parser.add_argument("--port", type=int, default=45454, help="porta LAN (default: 45454)")
     args = parser.parse_args()
     if not 6 <= args.width <= 30:
         parser.error("la larghezza deve essere compresa tra 6 e 30")
+    if args.host and args.join:
+        parser.error("scegliere --host oppure --join")
+    if args.port < 1 or args.port > 65535:
+        parser.error("la porta deve essere compresa tra 1 e 65535")
     return args
 
 
 if __name__ == "__main__":
     args = parse_args()
     try:
-        curses.wrapper(run, args.width)
+        curses.wrapper(start_app, args)
     except KeyboardInterrupt:
         pass
+    except OSError as error:
+        print(f"Errore di rete: {error}")

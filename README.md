@@ -19,6 +19,7 @@ servono dipendenze Python esterne.
 - Campo di gioco personalizzabile da 6 a 30 colonne
 - Pausa, game over e riavvio
 - Colori automatici quando il terminale li supporta
+- Multiplayer LAN 1v1 con campo dell'avversario aggiornato in tempo reale
 
 ## Requisiti
 
@@ -48,10 +49,15 @@ chmod +x tetris.py
 ./tetris.py
 ```
 
+All'avvio viene mostrato un menu con cinque opzioni: `SINGLEPLAYER`, `HOST`,
+`JOIN`, `SETTINGS` e `QUIT`. Usa le frecce (oppure `J`/`K`) e Invio per
+selezionare un'opzione. In `SETTINGS` puoi modificare larghezza del campo e
+porta LAN.
+
 ## Utilizzo
 
 La larghezza predefinita del campo è di 10 colonne. Puoi personalizzarla
-all'avvio:
+dal menu `SETTINGS` oppure all'avvio:
 
 ```bash
 ./tetris.py --width 14
@@ -77,6 +83,35 @@ necessaria: ridimensiona la finestra e riprova.
 | `P` | Metti in pausa o riprendi |
 | `Q` | Esci |
 | `R` | Ricomincia dopo il game over |
+
+## Multiplayer LAN 1v1
+
+Il multiplayer usa una connessione TCP locale e non richiede server esterni.
+Dal menu scegli `HOST` per avviare il primo terminale. In alternativa:
+
+```bash
+./tetris.py --host
+```
+
+L'host deve comunicare all'avversario l'indirizzo IP della macchina (non
+`127.0.0.1`) e la porta, se diversa da quella predefinita. Sul secondo
+terminale scegli `JOIN` e inserisci l'IP. In alternativa:
+
+```bash
+./tetris.py --join 192.168.1.42
+```
+
+Entrambi i giocatori devono usare la stessa larghezza del campo. Per una
+porta personalizzata, usare lo stesso valore su entrambi:
+
+```bash
+./tetris.py --host --port 45454
+./tetris.py --join 192.168.1.42 --port 45454
+```
+
+La schermata multiplayer mostra il proprio campo e quello dell'avversario,
+inclusi pezzo corrente, tavola, punteggio, linee e livello. Il firewall deve
+consentire connessioni TCP sulla porta scelta.
 
 ## Avvio da macOS
 
