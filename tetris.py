@@ -146,9 +146,15 @@ def init_colors():
     if not curses.has_colors():
         return
     curses.start_color()
-    curses.use_default_colors()
+    try:
+        curses.use_default_colors()
+    except curses.error:
+        pass
     for index in range(1, 8):
-        curses.init_pair(index, index, -1)
+        try:
+            curses.init_pair(index, index, -1)
+        except curses.error:
+            pass
 
 
 def draw_cell(screen, y, x, value, dim=False):
@@ -224,7 +230,10 @@ def animate_clear(screen, game, rows):
 
 
 def run(screen, board_width):
-    curses.curs_set(0)
+    try:
+        curses.curs_set(0)
+    except curses.error:
+        pass
     screen.nodelay(True)
     screen.keypad(True)
     init_colors()

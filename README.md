@@ -1,7 +1,23 @@
 # Tetris da terminale
 
-Gioco Tetris standalone per terminali Linux, scritto in Python usando solo la
-biblioteca standard `curses`.
+Gioco Tetris standalone per terminali Linux e macOS, scritto in Python usando
+solo la biblioteca standard `curses`.
+
+## Installazione
+
+Su macOS, installa Python 3 se non è già presente:
+
+```bash
+brew install python
+```
+
+Su Arch Linux:
+
+```bash
+sudo pacman -S python
+```
+
+Poi avvia il gioco dal Terminale macOS, iTerm2 o da un terminale Linux:
 
 ```bash
 chmod +x tetris.py
