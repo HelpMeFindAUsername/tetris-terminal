@@ -114,7 +114,10 @@ porta personalizzata, usare lo stesso valore su entrambi:
 
 La schermata multiplayer mostra il proprio campo e quello dell'avversario,
 inclusi pezzo corrente, tavola, punteggio, linee e livello. Il firewall deve
-consentire connessioni TCP sulla porta scelta.
+consentire connessioni TCP sulla porta scelta. L'host condivide un seed
+all'avvio, così entrambi ricevono la stessa sequenza di pezzi. L'animazione
+delle righe continua ad aggiornare il campo avversario senza spostare il
+layout o bloccare la rete.
 
 ## Avvio da macOS
 

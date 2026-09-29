@@ -55,8 +55,9 @@ PIECES = {name: build_rotations(rotations[0]) for name, rotations in SHAPES.item
 
 
 class Game:
-    def __init__(self, width=WIDTH):
+    def __init__(self, width=WIDTH, seed=None):
         self.width = width
+        self.random = random.Random(seed)
         self.board = [[None for _ in range(width)] for _ in range(HEIGHT)]
         self.score = 0
         self.lines = 0
@@ -66,9 +67,8 @@ class Game:
         self.next_piece = self.random_piece()
         self.spawn()
 
-    @staticmethod
-    def random_piece():
-        return random.choice(tuple(PIECES))
+    def random_piece(self):
+        return self.random.choice(tuple(PIECES))
 
     def spawn(self):
         self.kind = self.next_piece
@@ -192,13 +192,33 @@ class Peer:
             self.socket, address = listener.accept()
             listener.close()
             print(f"Avversario connesso da {address[0]}")
+            self.seed = random.SystemRandom().randrange(0, 2**63)
+            self.socket.sendall(
+                (json.dumps({"type": "seed", "seed": self.seed}) + "\n").encode()
+            )
         else:
             self.socket = socket.create_connection((host, port), timeout=8)
             print(f"Connesso a {host}:{port}")
+            handshake = b""
+            while b"\n" not in handshake:
+                chunk = self.socket.recv(1024)
+                if not chunk:
+                    raise ConnectionError("connessione chiusa durante il handshake")
+                handshake += chunk
+            raw, self.buffer = handshake.split(b"\n", 1)
+            message = json.loads(raw.decode())
+            if message.get("type") != "seed":
+                raise ConnectionError("handshake multiplayer non valido")
+            self.seed = int(message["seed"])
         self.socket.setblocking(False)
 
     def send(self, game):
-        payload = (json.dumps(game.snapshot(), separators=(",", ":")) + "\n").encode()
+        payload = (
+            json.dumps(
+                {"type": "snapshot", "game": game.snapshot()},
+                separators=(",", ":"),
+            ) + "\n"
+        ).encode()
         try:
             self.socket.sendall(payload)
         except (BlockingIOError, BrokenPipeError, ConnectionResetError):
@@ -216,9 +236,13 @@ class Peer:
             return None
         if b"\n" not in self.buffer:
             return None
-        raw, self.buffer = self.buffer.split(b"\n", 1)
+        complete, self.buffer = self.buffer.rsplit(b"\n", 1)
+        raw = complete.rsplit(b"\n", 1)[-1]
         try:
-            return Game.from_snapshot(json.loads(raw.decode()))
+            message = json.loads(raw.decode())
+            if message.get("type") != "snapshot":
+                return None
+            return Game.from_snapshot(message["game"])
         except (ValueError, KeyError, TypeError):
             return None
 
@@ -318,11 +342,22 @@ def draw(screen, game, opponent=None, highlight_rows=None):
     screen.refresh()
 
 
-def animate_clear(screen, game, rows):
+def animate_clear(screen, game, rows, opponent=None, peer=None):
     for flash in range(4):
-        draw(screen, game, highlight_rows=rows if flash % 2 == 0 else ())
-        time.sleep(0.08)
+        if peer:
+            incoming = peer.receive()
+            if incoming:
+                opponent = incoming
+            peer.send(game)
+        draw(
+            screen,
+            game,
+            opponent,
+            rows if flash % 2 == 0 else (),
+        )
+        time.sleep(0.05)
     game.clear_lines(rows)
+    return opponent
 
 
 MENU_ITEMS = ("SINGLEPLAYER", "HOST", "JOIN", "SETTINGS", "QUIT")
@@ -450,7 +485,7 @@ def run(screen, board_width, peer=None):
     screen.nodelay(True)
     screen.keypad(True)
     init_colors()
-    game = Game(board_width)
+    game = Game(board_width, peer.seed if peer else None)
     opponent = None
     last_drop = time.monotonic()
 
@@ -465,7 +500,7 @@ def run(screen, board_width, peer=None):
         if key in (ord("q"), ord("Q")):
             return
         if key in (ord("r"), ord("R")) and game.game_over:
-            game = Game(board_width)
+            game = Game(board_width, peer.seed if peer else None)
             last_drop = time.monotonic()
             continue
         if key in (ord("p"), ord("P")) and not game.game_over:
@@ -483,7 +518,7 @@ def run(screen, board_width, peer=None):
             elif key == ord(" "):
                 rows = game.hard_drop()
                 if rows:
-                    animate_clear(screen, game, rows)
+                    opponent = animate_clear(screen, game, rows, opponent, peer)
                 else:
                     game.spawn()
 
@@ -492,7 +527,7 @@ def run(screen, board_width, peer=None):
                 if not game.move(0, 1):
                     rows = game.lock()
                     if rows:
-                        animate_clear(screen, game, rows)
+                        opponent = animate_clear(screen, game, rows, opponent, peer)
                     else:
                         game.spawn()
                 last_drop = time.monotonic()
