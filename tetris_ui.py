@@ -15,6 +15,12 @@ from tetris_settings import save_settings
 
 
 PALETTE = {"I": 1, "O": 2, "T": 3, "S": 4, "Z": 5, "J": 6, "L": 7, "G": 8}
+BLOCK_GLYPHS = {"solid": "██", "brackets": "[]", "dots": "<>"}
+BLOCK_STYLE_LABELS = {
+    "solid": "Quadrati pieni ██",
+    "brackets": "Parentesi quadre []",
+    "dots": "Contorni <>",
+}
 PHASE_LABELS = {"waiting": "IN ATTESA", "countdown": "IN AVVIO", "playing": "IN GIOCO", "results": "CLASSIFICA"}
 ENTER = (10, 13, "\n", "\r", curses.KEY_ENTER)
 BACK = (27, "\x1b", "q", "Q")
@@ -204,9 +210,7 @@ def draw_cell(screen, y, x, kind, settings, ghost=False, dim=False):
     elif ghost:
         glyph, attributes = "..", color(kind) | curses.A_DIM
     else:
-        glyph = {"solid": "██", "brackets": "[]", "dots": "<>"}[settings["block_style"]]
-        if kind == "G":
-            glyph = "##"
+        glyph = BLOCK_GLYPHS[settings["block_style"]]
         attributes = color(kind) | (curses.A_DIM if dim else curses.A_BOLD)
     put(screen, y, x, glyph, attributes)
 
@@ -295,6 +299,7 @@ def draw_game(screen, game, settings, visuals, identity, now, title="SINGLEPLAYE
 
 SETTING_ROWS = (
     ("nickname", "Nickname", "text", None),
+    ("block_style", "Stile dei blocchi", "choice", ("solid", "brackets", "dots")),
     ("server", "IP / nome del server", "text", None),
     ("port", "Porta del server", "number", (1, 65535, 1)),
     ("tls", "Connessione TLS", "bool", None),
@@ -310,7 +315,6 @@ SETTING_ROWS = (
     ("particles", "Particelle sulle righe", "bool", None),
     ("sound", "Suoni del terminale", "bool", None),
     ("theme", "Tema colori", "choice", ("neon", "classic", "mono")),
-    ("block_style", "Stile dei blocchi", "choice", ("solid", "brackets", "dots")),
     ("preview_count", "Pezzi in anteprima", "number", (1, 5, 1)),
 )
 
@@ -397,6 +401,8 @@ class App:
                 name, label, kind, _ = SETTING_ROWS[index]
                 value = self.settings[name]
                 shown = "SI" if value is True else "NO" if value is False else str(value) if value != "" else "(CA di sistema)"
+                if name == "block_style":
+                    shown = BLOCK_STYLE_LABELS[value]
                 put(self.screen, 5 + row, 3, crop(label.ljust(29) + " " + shown, self.screen.getmaxyx()[1] - 7),
                     curses.A_REVERSE if index == selected else 0)
             center(self.screen, height - 3, self.toast(), color("O"))

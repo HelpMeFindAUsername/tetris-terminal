@@ -44,6 +44,12 @@ python3 tetris.py --width 14 --nickname Mario
 
 Le password delle lobby non vengono salvate nelle preferenze.
 
+In **IMPOSTAZIONI → Stile dei blocchi**, usa **Sinistra/Destra** o **Invio**
+per scegliere **Quadrati pieni `██`** oppure **Parentesi quadre `[]`**, come
+nella versione originale. E disponibile anche lo stile **Contorni `<>`**.
+La scelta si salva uscendo dalle impostazioni con **Esc** e si applica a
+pezzi, anteprime, campi degli avversari e righe iniziali del vincitore.
+
 ## Controlli
 
 | Tasto | Azione |
